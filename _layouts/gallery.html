@@ -1,0 +1,115 @@
+---
+layout: default
+---
+<div class="container">
+  <div class="header">
+    <a href="/蠢沫沫.html" class="back-btn">← 返回列表</a>
+    <h1>{{ page.title }}</h1>
+  </div>
+  <div class="disclaimer">
+    此仓库仅供学习和交流使用，请在下载后 24 小时内删除！
+  </div>
+  <div class="image-grid">
+    {{ content }}
+  </div>
+</div>
+
+<style>
+.header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.back-btn {
+  display: inline-block;
+  padding: 8px 16px;
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  color: #6ec6ff;
+  font-size: 0.9em;
+  transition: all 0.2s;
+}
+.back-btn:hover {
+  background: #2a2a4a;
+  text-decoration: none;
+}
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+.image-grid img {
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.2s, opacity 0.3s;
+  opacity: 0;
+}
+.image-grid img.loaded {
+  opacity: 1;
+}
+.image-grid img:hover {
+  transform: scale(1.03);
+}
+.image-grid p:has(img) {
+  margin: 0;
+}
+/* lightbox */
+.lightbox {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.95);
+  z-index: 9999;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+}
+.lightbox img {
+  max-width: 95%;
+  max-height: 95%;
+  border-radius: 4px;
+}
+.lightbox.active { display: flex; }
+</style>
+
+<script>
+// 懒加载
+document.addEventListener('DOMContentLoaded', function() {
+  var imgs = document.querySelectorAll('.image-grid img');
+  var observer = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        var img = entry.target;
+        var src = img.getAttribute('src');
+        if (src) {
+          img.classList.add('loaded');
+          observer.unobserve(img);
+        }
+      }
+    });
+  }, { rootMargin: '200px' });
+  imgs.forEach(function(img) { observer.observe(img); });
+
+  // lightbox
+  var lightbox = document.createElement('div');
+  lightbox.className = 'lightbox';
+  document.body.appendChild(lightbox);
+  var lbImg = document.createElement('img');
+  lightbox.appendChild(lbImg);
+
+  imgs.forEach(function(img) {
+    img.addEventListener('click', function() {
+      lbImg.src = img.src;
+      lightbox.classList.add('active');
+    });
+  });
+  lightbox.addEventListener('click', function() {
+    lightbox.classList.remove('active');
+  });
+});
+</script>

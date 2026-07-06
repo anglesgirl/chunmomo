@@ -3,8 +3,22 @@ safe: true
 source: .
 incremental: false
 highlighter: rouge
+
 gist:
   noscript: false
+
 kramdown:
   math_engine: mathjax
   syntax_highlighter: rouge
+  input: GFM
+
+# 不使用 permalink: pretty，保持 .html 后缀
+# 这样 .md 文件中的相对图片路径能正确解析
+
+# 排除不需要构建的文件
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - add_frontmatter.py
+  - README.md
+  - .gitignore

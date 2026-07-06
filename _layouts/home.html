@@ -1,0 +1,32 @@
+---
+layout: default
+---
+<div class="container">
+  <h1>{{ page.title }}</h1>
+  <div class="disclaimer">
+    此仓库仅供学习和交流使用，请在下载后 24 小时内删除！
+  </div>
+  <div class="gallery-list">
+    {{ content }}
+  </div>
+</div>
+
+<style>
+.gallery-list a {
+  display: inline-block;
+  margin: 8px 12px 8px 0;
+  padding: 10px 16px;
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-size: 0.9em;
+  transition: all 0.2s;
+}
+.gallery-list a:hover {
+  background: #2a2a4a;
+  border-color: #6ec6ff;
+  text-decoration: none;
+  transform: translateY(-2px);
+}
+</style>
