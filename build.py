@@ -1,18 +1,71 @@
 #!/usr/bin/env python3
 """
 将 .md 文件转换为 .html，不依赖 Jekyll。
-在 Cloudflare Pages 构建时运行。
+处理尖括号链接语法 (<url>) 和中文路径。
 """
 import os
 import re
 import glob
-import html
 import shutil
+import urllib.parse
 
 ROOT = os.environ.get('ROOT', '/opt/buildhome/repo')
 OUTPUT = os.environ.get('OUTPUT', '/opt/buildhome/repo/_site')
 
-def md_to_html(md_text):
+def encode_url(path):
+    """URL 编码路径，但保留 / 和常见字符"""
+    # 如果已经是 http 开头，不编码
+    if path.startswith('http://') or path.startswith('https://'):
+        return path
+    # 分割路径，分别编码每一段
+    parts = path.split('/')
+    encoded_parts = []
+    for part in parts:
+        if part:
+            encoded_parts.append(urllib.parse.quote(part, safe=''))
+    return '/'.join(encoded_parts)
+
+def parse_markdown_links(text):
+    """
+    解析 markdown 链接和图片，支持尖括号语法和嵌套方括号。
+    返回替换后的 HTML。不编码 URL，留给后续处理。
+    """
+    result = []
+    pos = 0
+
+    # 匹配 ![alt](<url>) 或 [text](<url>)
+    # 用 .+? 非贪婪匹配，支持文本中包含 ] 字符
+    pattern = re.compile(
+        r'(!?)\[(.+?)\]\((<[^>]+>|[^)]+)\)'
+    )
+
+    for match in pattern.finditer(text):
+        # 添加匹配前的普通文本
+        result.append(text[pos:match.start()])
+
+        is_image = match.group(1) == '!'
+        alt_or_text = match.group(2)
+        raw_url = match.group(3)
+
+        # 去掉尖括号
+        if raw_url.startswith('<') and raw_url.endswith('>'):
+            url = raw_url[1:-1]
+        else:
+            url = raw_url
+
+        if is_image:
+            result.append(f'<img src="{url}" alt="{alt_or_text}" loading="lazy">')
+        else:
+            result.append(f'<a href="{url}">{alt_or_text}</a>')
+
+        pos = match.end()
+
+    # 添加剩余文本
+    result.append(text[pos:])
+    return ''.join(result)
+
+
+def md_to_html(md_text, is_gallery=False, gallery_dir=None):
     """简易 Markdown 转 HTML"""
     lines = md_text.split('\n')
     html_lines = []
@@ -26,35 +79,41 @@ def md_to_html(md_text):
             if in_list:
                 html_lines.append('</ul>')
                 in_list = False
-            html_lines.append(f'<h1>{html.escape(stripped[2:])}</h1>')
+            html_lines.append(f'<h1>{stripped[2:]}</h1>')
         elif stripped.startswith('## '):
             if in_list:
                 html_lines.append('</ul>')
                 in_list = False
-            html_lines.append(f'<h2>{html.escape(stripped[3:])}</h2>')
+            html_lines.append(f'<h2>{stripped[3:]}</h2>')
         elif stripped.startswith('### '):
             if in_list:
                 html_lines.append('</ul>')
                 in_list = False
-            html_lines.append(f'<h3>{html.escape(stripped[4:])}</h3>')
+            html_lines.append(f'<h3>{stripped[4:]}</h3>')
         # 列表项
         elif stripped.startswith('- ') or stripped.startswith('* '):
             if not in_list:
                 html_lines.append('<ul>')
                 in_list = True
             item = stripped[2:]
-            # 处理链接 [text](url)
-            item = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', item)
+            # 处理链接和图片
+            item = parse_markdown_links(item)
             html_lines.append(f'<li>{item}</li>')
-        # 图片 ![alt](url)
+        # 图片行 ![alt](<url>)
         elif stripped.startswith('!['):
             if in_list:
                 html_lines.append('</ul>')
                 in_list = False
-            match = re.match(r'!\[([^\]]*)\]\(([^)]+)\)', stripped)
-            if match:
-                alt, url = match.group(1), match.group(2)
-                html_lines.append(f'<p><img src="{url}" alt="{alt}" loading="lazy"></p>')
+            # 处理图片
+            img_html = parse_markdown_links(stripped)
+            html_lines.append(f'<p>{img_html}</p>')
+        # 链接行 [text](<url>)
+        elif stripped.startswith('[') and '](' in stripped:
+            if in_list:
+                html_lines.append('</ul>')
+                in_list = False
+            link_html = parse_markdown_links(stripped)
+            html_lines.append(f'<p>{link_html}</p>')
         # 空行
         elif stripped == '':
             if in_list:
@@ -66,14 +125,14 @@ def md_to_html(md_text):
             if in_list:
                 html_lines.append('</ul>')
                 in_list = False
-            # 处理链接
-            line_processed = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', stripped)
+            line_processed = parse_markdown_links(stripped)
             html_lines.append(f'<p>{line_processed}</p>')
 
     if in_list:
         html_lines.append('</ul>')
 
     return '\n'.join(html_lines)
+
 
 def wrap_html(title, body, layout='gallery'):
     """包装成完整 HTML 页面"""
@@ -158,12 +217,19 @@ def wrap_html(title, body, layout='gallery'):
 
     back_btn = '<a href="/蠢沫沫.html" class="back-btn">← 返回列表</a>' if layout == 'gallery' else ''
 
+    if layout == 'gallery':
+        lightbox_html = '<div class="lightbox" onclick="this.classList.remove(\'active\')"><img></div><script>var lb=document.querySelector(".lightbox");document.querySelectorAll(".image-grid img").forEach(function(img){img.onclick=function(){lb.querySelector("img").src=this.src;lb.classList.add("active")}})</script>'
+    else:
+        lightbox_html = ''
+
+    content_class = 'gallery-list' if layout == 'home' else 'image-grid'
+
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{html.escape(title)}</title>
+  <title>{title}</title>
   <style>
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
     body {{
@@ -191,17 +257,53 @@ def wrap_html(title, body, layout='gallery'):
 <body>
   <div class="container">
     {back_btn}
-    <h1>{html.escape(title)}</h1>
+    <h1>{title}</h1>
     <div class="disclaimer">
       此仓库仅供学习和交流使用，请在下载后 24 小时内删除！
     </div>
-    <div class="{'gallery-list' if layout == 'home' else 'image-grid'}">
+    <div class="{content_class}">
       {body}
     </div>
   </div>
-  {'<div class="lightbox" onclick="this.classList.remove(\'active\')"><img></div><script>var lb=document.querySelector(".lightbox");document.querySelectorAll(".image-grid img").forEach(function(img){img.onclick=function(){lb.querySelector("img").src=this.src;lb.classList.add("active")}})</script>' if layout == 'gallery' else ''}
+  {lightbox_html}
 </body>
 </html>"""
+
+
+def fix_links_for_home(html_body):
+    """修正主页链接：将 蠢沫沫/xxx 改为 xxx.html"""
+    # 匹配 href="蠢沫沫/xxx" 并改为 href="xxx.html"
+    def replace_link(match):
+        url = match.group(1)
+        # 去掉 蠢沫沫/ 前缀
+        if url.startswith('蠢沫沫/'):
+            url = url[len('蠢沫沫/'):]
+        # 加 .html 后缀
+        if not url.endswith('.html') and not url.endswith('/'):
+            url = url + '.html'
+        # URL 编码
+        return f'href="{encode_url(url)}"'
+
+    return re.sub(r'href="([^"]+)"', replace_link, html_body)
+
+
+def fix_images_for_gallery(html_body):
+    """修正画廊页图片路径：加上 蠢沫沫/ 前缀"""
+    # 匹配 src="xxx/xxx.webp" 并改为 src="蠢沫沫/xxx/xxx.webp"
+    def replace_img(match):
+        url = match.group(1)
+        # 如果已经是完整 URL，不改
+        if url.startswith('http://') or url.startswith('https://'):
+            return f'src="{url}"'
+        # 如果已经有 蠢沫沫/ 前缀，不改
+        if url.startswith('蠢沫沫/'):
+            return f'src="{url}"'
+        # 加上 蠢沫沫/ 前缀
+        full_url = '蠢沫沫/' + url
+        return f'src="{encode_url(full_url)}"'
+
+    return re.sub(r'src="([^"]+)"', replace_img, html_body)
+
 
 def process_md(filepath, output_dir, is_home=False):
     """处理单个 .md 文件"""
@@ -224,6 +326,12 @@ def process_md(filepath, output_dir, is_home=False):
 
     body = md_to_html(content)
 
+    # 修正链接和图片路径
+    if is_home:
+        body = fix_links_for_home(body)
+    else:
+        body = fix_images_for_gallery(body)
+
     layout = 'home' if is_home else 'gallery'
     html_content = wrap_html(title, body, layout)
 
@@ -239,15 +347,16 @@ def process_md(filepath, output_dir, is_home=False):
 
     return html_name
 
+
 def copy_assets(root, output):
     """复制非 .md 文件（图片等）到输出目录"""
     for dirpath, dirnames, filenames in os.walk(root):
-        # 跳过 .git 和 _site
+        # 跳过 .git 和 _site 和 _layouts
         if '.git' in dirpath or '_site' in dirpath or '_layouts' in dirpath:
             continue
 
         for filename in filenames:
-            if filename.endswith('.md') or filename.endswith('.py') or filename == 'Gemfile' or filename == '_config.yml':
+            if filename.endswith('.md') or filename.endswith('.py') or filename == 'Gemfile' or filename == '_config.yml' or filename == '.python-version':
                 continue
 
             src_path = os.path.join(dirpath, filename)
@@ -256,6 +365,7 @@ def copy_assets(root, output):
 
             os.makedirs(os.path.dirname(dst_path), exist_ok=True)
             shutil.copy2(src_path, dst_path)
+
 
 def main():
     root = ROOT
@@ -301,6 +411,7 @@ def main():
 
     print(f"完成！共处理 {count} 个作品集 + 1 个主页")
     print(f"输出目录: {output}")
+
 
 if __name__ == '__main__':
     main()
